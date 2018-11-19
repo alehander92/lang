@@ -11,7 +11,7 @@
 #   InfixOp(Int, Node, Node)
 #   Lit(Float)
 
-import macros, sequtils, strformat, strutils
+import macros, sequtils, strformat, strutils, algorithm, options, sugar, tables
 
 type
   NodeKind* = enum 
@@ -35,6 +35,45 @@ type
       i*:    int
     else:
       children*: seq[Node]
+    typ*: Type
+
+  TypeKind* = enum
+    TSimple,
+    TConcrete,
+    TGeneric
+
+
+  Type* = object
+    case kind*: TypeKind:
+    of TSimple:
+      name*:    string
+    of TConcrete:
+      params*:  seq[Type]
+    of TGeneric:
+      args*:    seq[string]
+  
+  TypeEnv* = object
+    previous*: seq[TypeEnv]
+    types*:    Table[string, Type]
+
+proc initTypeEnv*: TypeEnv =
+  TypeEnv(previous: @[], types: initTable[string, Type]())
+
+proc `[]`*(env: TypeEnv, name: string): Type =
+  var current = env
+  while true:
+    if current.types.hasKey(name):
+      return current.types[name]
+    if current.previous.len > 0:
+      current = current.previous[0]
+    else:
+      break
+  return Type(kind: TSimple, name: "")
+
+proc `[]=`*(env: TypeEnv, name: string, t: Type) =
+  var types = env.types
+  types[name] = t
+
 
 proc op*(name: string): Node =
   Node(kind: Operator, name: name)
@@ -100,8 +139,8 @@ proc pseudoNode(child: NimNode, depth: int = 0): NimNode =
 
 
 let code = program:
-  signature("Int", "Int")
   functionDef("fib", args("n")):
+    signature("Int", "Int")
     code:
       ifNode:
         code:
@@ -110,5 +149,48 @@ let code = program:
         code:
           1
   call("fib", 4)
-      
-echo code
+
+using
+  node: Node
+  env: TypeEnv
+
+macro genCase(t: NodeKind, name: untyped, args: varargs[untyped]): untyped =
+  result = nnkCaseStmt.newTree(nnkDotExpr.newTree(args[0], ident"kind"))
+  for a in NodeKind.low .. NodeKind.high:
+    let aNode = ident($a)
+    let callName = ident(name.repr & ($a)[0 .. ^1].capitalizeAscii)
+    let child = ident"child"
+    var call = nnkCall.newTree(callName)
+    var childCall = nnkCall.newTree(name, child)
+    for i, arg in args:
+      call.add(arg)
+      if i > 0:
+        childCall.add(arg)
+    let code = quote:
+      when declared(`callName`):
+        `call`
+      else:
+        echo "NO ", node.kind
+        for `child` in node.children:
+          `childCall`
+
+    result.add(nnkOfBranch.newTree(aNode, code))
+
+proc checkName*(node, env) =
+  let t = env[node.name]
+  if t.len == 0:
+    echo &"NO {node.name}"
+  else:
+    node.typ = t
+
+proc checkInt*(node, env) =
+  env["Int"]
+
+proc check*(node, env) =
+  genCase(NodeKind.low, check, node, env)
+
+var env = initTypeEnv()
+env["Int"] = Type(kind: TSimple, name: "Int")
+
+check(code, env)
+  
