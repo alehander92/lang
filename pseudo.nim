@@ -25,7 +25,16 @@ type
     Args,
     Name,
     Int,
-    Call
+    Call,
+    Assign,
+    Declaration,
+    DeclarationHelper,
+    ForRange,
+    ForIn,
+    ReturnNode,
+    BigO,
+    ComplexitySignature
+
 
   Node* = ref object
     case kind*: NodeKind:
@@ -33,9 +42,13 @@ type
       name*: string
     of Int:
       i*:    int
+    of DeclarationHelper:
+      declaration*: DeclarationKind
     else:
       children*: seq[Node]
     typ*: Type
+
+  DeclarationKind = enum DeclLet, DeclVar
 
   TypeKind* = enum
     TSimple,
@@ -86,6 +99,9 @@ proc `[]=`*(env: TypeEnv, name: string, t: Type) =
 proc op*(name: string): Node =
   Node(kind: Operator, name: name)
 
+proc decl*(a: DeclarationKind): Node =
+  Node(kind: DeclarationHelper, declaration: a)
+
 macro init*(kindValue: untyped, childrenValue: varargs[untyped]): untyped =
   var childrenNode = quote do: @[]
   for value in childrenValue:
@@ -122,7 +138,7 @@ proc pseudoNode(child: NimNode, depth: int = 0): NimNode =
   case child.kind:
   of nnkCall, nnkCallStrLit:
     let name = child[0].repr.capitalizeAscii
-    if name.startsWith("Op"):
+    if name.startsWith("Op") or name.startswith("Decl") and name != "Declaration":
       return child
     let nameNode = name.ident
     var values: NimNode
@@ -287,29 +303,87 @@ proc checkChildren*(nodes: seq[Node]; env) =
 
 var env = newTypeEnv()
 env["Int"] = Type(kind: TSimple, name: "Int")
-env["Bool"] = Type(kind: )
+# env["Bool"] = Type(kind: TSimple, name: "Bool")
 check(code, env)
 
 echo code.typ.kind
 
 
-n -> O[n^2]
-Int -> Int
-def example0(n):
-  var result = 0
-  for i in 0 ..< n:
-    for j in 0 ..< n:
-      result += j
-  return result
+# n -> O[n^2]
+# Int -> Int
+# def example0(n):
+#   var result = 0
+#   for i in 0 ..< n:
+#     for j in 0 ..< n:
+#       result = result + j
+#   return result
 
-n -> O[n^2]
-Int -> Int
-def example1(n):
-  var result = 0
-  for i in 0 ..< n:
-    for j in i ..< n:
-      result += j
-  return result
+let example0 = program:
+  complexitySignature("n", bigO(infixOp(op"^", "n", 2)))
+  signature("Int", "Int")
+  functionDef("example0", args("n")):
+    code:
+      declaration(decl(DeclVar), assign("result", 0))
+      forRange("i", 0, "n"):
+        forRange("j", 0, "n"):
+          assign("result", infixOp(op"+", "result", "j"))
+      returnNode("result")
+
+type
+  ComplexityEnv* = ref object
+    typeEnv*:    Env
+    previous*:   seq[ComplexityEnv]
+    facts*:      Table[string, SyExpression]
+  
+  SyKind* = enum Symbol, SyPower
+
+  SyExpression* = ref object
+    case kind*: SyKind:
+    of Symbol:
+      name*:     string
+    of SyPower:
+      left*:     SyExpression
+      right*:    SyExpression
+
+
+proc sy*(name: string): SyExpression =
+  SyExpression(kind: Symbol, name: name)
+
+var cenv = ComplexityEnv(typeEnv: env)
+
+using
+  cenv: ComplexityEnv
+
+proc complexityFunctionDef*(node, cenv) =
+  if node[0].kind != ComplexitySignature:
+    return
+
+  # generate syexpression
+  # node.typ
+
+proc complexityProgram*(node, cenv) =
+  for i, child in node:
+    case child.kind:
+    of ComplexitySignature:
+      node.children[i + 1].children = @[child].concat(node.children[i + 1])
+    of FunctionDef:
+      complexityFunctionDef(child, cenv)
+    else:
+      discard
+
+proc complexityCheck*(node, cenv) =
+  genCase(NodeKind.low, complexity, node, cenv)
+
+complexityCheck(example0, env)
+
+# n -> O[n^2]
+# Int -> Int
+# def example1(n):
+#   var result = 0
+#   for i in 0 ..< n:
+#     for j in i ..< n:
+#       result += j
+#   return result
 
 # example0
 # for:  n
@@ -335,13 +409,13 @@ def example1(n):
 
 # lets see
 
-n -> O[n^2]
-Int
-def example2(n):
-  var result = 0
-  for i in 0 ..< n:
-    if i < 1:
-      example0(i)
+# n -> O[n^2]
+# Int
+# def example2(n):
+#   var result = 0
+#   for i in 0 ..< n:
+#     if i < 1:
+#       example0(i)
 
 
 # example2
