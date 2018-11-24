@@ -242,6 +242,7 @@ proc checkFunctionDef*(node, env) =
   childEnv.previous = @[env]
   for i, arg in node[2].children:
     childEnv[arg.name] = t.params[i]
+    echo arg.name
   check(node[3], childEnv)
   
 proc checkOperator(node, env) =
@@ -304,7 +305,7 @@ proc checkChildren*(nodes: seq[Node]; env) =
 var env = newTypeEnv()
 env["Int"] = Type(kind: TSimple, name: "Int")
 # env["Bool"] = Type(kind: TSimple, name: "Bool")
-check(code, env)
+# check(code, env)
 
 echo code.typ.kind
 
@@ -331,50 +332,108 @@ let example0 = program:
 
 type
   ComplexityEnv* = ref object
-    typeEnv*:    Env
+    typeEnv*:    TypeEnv
     previous*:   seq[ComplexityEnv]
     facts*:      Table[string, SyExpression]
   
-  SyKind* = enum Symbol, SyPower
+  SyKind* = enum Symbol, SyPlus, SyMinus, SyPower, SyInt, SyText
 
   SyExpression* = ref object
     case kind*: SyKind:
     of Symbol:
       name*:     string
-    of SyPower:
+    of SyPower, SyPlus, SyMinus:
       left*:     SyExpression
       right*:    SyExpression
+    of SyInt:
+      i*:        int
+    of SyText:
+      text*:     string
 
+    
 
 proc sy*(name: string): SyExpression =
   SyExpression(kind: Symbol, name: name)
+
+
+converter toSymbol*(i: int): SyExpression =
+  SyExpression(kind: SyInt, i: i)
+
+using
+  l: SyExpression
+  r: SyExpression
+
+proc `+`*(l, r): SyExpression =
+  SyExpression(kind: SyPlus, left: l, right: r)
+
+proc `-`*(l, r): SyExpression =
+  SyExpression(kind: SyMinus, left: l, right: r)
+
+proc text(a: SyExpression, depth: int = 0): string =
+  if a.isNil:
+    return repeat("  ", depth) & "nil"
+  result = repeat("  ", depth) & $a.kind
+  let right = case a.kind:
+    of Symbol:
+      &"[{a.name}]"
+    of SyPower, SyPlus, SyMinus:
+      &":\n{text(a.left, depth + 1)}\n{text(a.right, depth + 1)}\n"
+    of SyInt:
+      &"[{a.i}]"
+    of SyText:
+      &"[{a.text}]"
+  result = result & right
 
 var cenv = ComplexityEnv(typeEnv: env)
 
 using
   cenv: ComplexityEnv
 
-proc complexityFunctionDef*(node, cenv) =
+proc complexity*(node: Node, cenv: ComplexityEnv): SyExpression
+
+proc complexityForRange*(node, cenv): SyExpression =
+  discard
+
+proc complexityFunctionDef*(node, cenv): SyExpression =
   if node[0].kind != ComplexitySignature:
     return
 
-  # generate syexpression
-  # node.typ
+  var childCenv = ComplexityEnv(typeEnv: cenv.typeEnv, previous: @[cenv])
 
-proc complexityProgram*(node, cenv) =
-  for i, child in node:
+  var expr = toSymbol(0)
+  echo node[2].children.len
+  for child in node[2].children:
+    let e = complexity(child, childCenv)
+    expr = expr + e
+    echo expr.text
+  
+proc complexityProgram*(node, cenv): SyExpression =
+  for i, child in node.children:
+    echo child.kind
     case child.kind:
     of ComplexitySignature:
-      node.children[i + 1].children = @[child].concat(node.children[i + 1])
+      node.children[i + 1].children = @[child].concat(node.children[i + 1].children)
     of FunctionDef:
-      complexityFunctionDef(child, cenv)
+      discard complexityFunctionDef(child, cenv)
     else:
       discard
 
-proc complexityCheck*(node, cenv) =
-  genCase(NodeKind.low, complexity, node, cenv)
+proc complexity*(node, cenv): SyExpression =
+  case node.kind:
+  of Program:
+    complexityProgram(node, cenv)
+  of ForRange:
+    complexityForRange(node, cenv)
+  else:
+    echo "no", node.kind
+    1
+  
 
-complexityCheck(example0, env)
+proc complexityCheck*(node, cenv) =
+  discard complexity(node, cenv)
+
+check(example0, env)
+complexityCheck(example0, cenv)
 
 # n -> O[n^2]
 # Int -> Int
