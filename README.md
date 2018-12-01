@@ -47,3 +47,8 @@ Probably not going to be very sound, but maybe we can deal with some situations
 
 Effects can be also functions: in this case they take a parameter and return a tag. 
 We have compile time evaluation based on our interpreter.
+
+If there is no effect, we don't check effects, if one wants to ensure no effects are hidden, he must use
+`@noeffect`
+
+`@pure` is different: it only checks for side effects, so if you have a custom side effect, you have to make it a function and return a list of it and side effect.
