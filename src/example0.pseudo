@@ -1,0 +1,8 @@
+%n->O[2*n]
+Int->Int
+def examplezero(n):
+  var result = 0
+  for i in 0 ..< n:
+    for j in 0 ..< n:
+      result = result + j
+  return result
