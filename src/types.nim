@@ -1,12 +1,12 @@
 # Thank Lord!
 
-import macros, strutils, sequtils, tables, strformat, algorithm, sugar, sets
+import macros, strutils, sequtils, tables, strformat, algorithm, sugar, sets, hashes
 
 type
   NodeKind* = enum 
     Program,
     Signature,
-    FunctionDef,
+    Fn,
     Code,
     IfNode,
     InfixOp,
@@ -19,6 +19,8 @@ type
     Call,
     Assign,
     Declaration,
+    PointerType,
+    Arg,
     ForRange,
     ForIn,
     ReturnNode,
@@ -31,8 +33,7 @@ type
     BigM,
     ComplexityInfix,
     DeclarationName,
-   RightInfix
-
+    RightInfix
 
   Node* = ref object
     case kind*: NodeKind:
@@ -49,19 +50,27 @@ type
   TypeKind* = enum
     TSimple,
     TConcrete,
-    TGeneric
+    TGeneric,
+    TFunction,
+    TPointer,
+    TAny
 
 
-  Type* = object
+  Type* = ref object
     case kind*: TypeKind:
-    of TSimple:
-      discard      
+    of TSimple, TAny:
+      discard
     of TConcrete:
       params*:  seq[Type]
       base*:    seq[Type]
     of TGeneric:
       args*:    seq[string]
+    of TFunction:
+      functionArgs*: seq[Type]
+    of TPointer:
+      obj*:     Type
     name*:      string
+    path*:      Path
 
 
 
@@ -69,6 +78,12 @@ type
   TypeEnv* = ref object
     previous*: seq[TypeEnv]
     types*: Table[string, Type]
+    paths*: Table[Path, int]
+    freed*: Table[Path, bool]
+    lastName*: string
+
+  Path* = ref object
+    subPaths*: seq[string]
 
   ComplexityEnv* = ref object
     typeEnv*:    TypeEnv
@@ -94,6 +109,8 @@ type
       text*:     string
 
 
+func path*(subPaths: seq[string]): Path =
+  Path(subPaths: subPaths)
 macro init*(kindValue: untyped, childrenValue: untyped): untyped =
   var childrenNode = childrenValue # quote do: @[]
   # for value in childrenValue:
@@ -141,6 +158,22 @@ proc `[]=`*(env: TypeEnv, name: string, t: Type) =
   types[name] = t
   env.types = types
 
+proc `==`*(typ: Type, other: Type): bool =
+  if typ.kind != other.kind:
+    return false
+  case typ.kind:
+  of TAny:
+    true
+  of TSimple:
+    typ.name == other.name
+  of TConcrete, TGeneric:
+    false
+  of TFunction:
+    typ.functionArgs.len == other.functionArgs.len and
+      typ.functionArgs.zip(other.functionArgs).allIt(it[0] == it[1])
+  of TPointer:
+    typ.obj == other.obj
+  
 proc op*(name: string): Node =
   Node(kind: Operator, name: name)
 
@@ -160,6 +193,9 @@ proc text*(node: Node, depth: int): string =
   result = repeat("  ", depth) & result
 
 
+proc hash*(path: Path): Hash =
+  path.subPaths.join("").hash 
+
 proc `$`*(node: Node): string =
   text(node,  0)
 
@@ -170,6 +206,18 @@ proc `[]=`*(node: Node; index: int, value: Node): Node =
   node.children[index] = value
 
 
+proc `==`*(node: Node, other: Node): bool =
+  if node.isNil or other.isNil:
+    return false
+  if node.kind != other.kind:
+    return false
+  case node.kind:
+  of Name, Operator, Typename, DeclarationName:
+    $node.name == $other.name
+  of Int, Number:
+    node.i == other.i
+  else:
+    false
 
 proc pseudoNode(child: NimNode, depth: int = 0): NimNode
 

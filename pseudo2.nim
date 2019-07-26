@@ -35,18 +35,15 @@ proc substrEq(a: string, b: int, c: string): bool =
     for i, d in c:
       if a[b + i] != d:
         return false
-    # echo b, ": ", c, " ", "ok"
+    echo b, ": ", c, " ", "ok"
     return true
 
 
 macro log(name: untyped): untyped =
   let e = newLit($name)
   quote:
+    echo repeat("  ", ctx.depth), "visit: ", start, " ", `e`
     ctx.depth += 1
-    discard
-  # quote:
-  #   echo repeat("  ", ctx.depth), "visit: ", start, " ", `e`
-  #   ctx.depth += 1
 
 macro finalLog(name: untyped): untyped =
   let e = newLit($name)
@@ -306,10 +303,9 @@ proc parseExpr(start: int, ctx: Context): (Node, int, bool) =
       else:
         let children = @[child0].concat(child1.children)
         let node = case child1.kind:
-          of RightCall, CallArgs: Call.init(children)
+          of RightCall: Call.init(children)
           of RightInfix: InfixOp.init(children)
           else: nil
-
 
         result = (node, i, true)
       return
@@ -1097,7 +1093,7 @@ proc parseName(start: int, ctx: Context): (Node, int, bool) =
 
 proc parse*(input: string): Node =
   var i = load(input, 2)
-  # echo i
+  echo i
   var ctx = Context(input: i)
   var res = parseProgram(0, ctx)
   if res[2]:
