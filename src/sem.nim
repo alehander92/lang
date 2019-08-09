@@ -1,4 +1,8 @@
-import types, macros, sequtils, strformat, strutils, algorithm, options, sugar, tables
+# Praise God !
+
+
+
+import types, macros, sequtils, strformat, strutils, algorithm, options, sugar, tables, tools
 
 proc check*(node: Node, env: TypeEnv)
 proc checkChildren*(nodes: seq[Node], env: TypeEnv)
@@ -9,32 +13,9 @@ using
 
 proc checkAccess(node, env; message: string)
 
-macro genCase(t: NodeKind, name: untyped, args: varargs[untyped]): untyped =
-  result = nnkCaseStmt.newTree(nnkDotExpr.newTree(args[0], ident"kind"))
-  for a in NodeKind.low .. NodeKind.high:
-    let aNode = ident($a)
-    let callName = ident(name.repr & ($a)[0 .. ^1].capitalizeAscii)
-    let child = ident"child"
-    var call = nnkCall.newTree(callName)
-    var childCall = nnkCall.newTree(name, child)
-    for i, arg in args:
-      call.add(arg)
-      if i > 0:
-        childCall.add(arg)
-    let code = quote:
-      when declared(`callName`):
-        echo "=> ", node.kind
-        `call`
-      else:
-        echo "NO ", node.kind
-        for `child` in node.children:
-          `childCall`
-
-    result.add(nnkOfBranch.newTree(aNode, code))
-  
 proc checkName*(node, env) =
   let t = env[node.name]
-  if t.kind == TSimple and t.name.len == 0:
+  if t.isNil or t.kind == TSimple and t.name.len == 0:
     # for name, typ in env.types:
     #   echo name, " ", typ.name
     echo &"NO {node.name}"
@@ -73,7 +54,6 @@ proc checkNew*(node, env) =
 # FREE
 
 
-# Praise God !
   
 proc checkFree*(node, env) =
   check(node[1], env)
@@ -143,37 +123,36 @@ proc checkDeclaration*(node, env) =
   node.typ = env["Void"]
 
 proc genType*(node, env): Type =
-  Type(kind: TSimple, name: node.name)
+  case node.kind:
+  of Name, Typename:
+    Type(kind: TSimple, name: node.name)
+  of PointerType:
+    Type(kind: TPointer, obj: genType(node[0], env))
+  else:
+    echo "what type"
+    echo node
+    quit(1)
 
 proc checkComplexitySignature*(node, env) =
   discard
 
 proc checkFn*(node, env) =
   var t = Type(kind: TConcrete, name: "Function")
-  var signature: Node
-  var args: Node
-  var code: Node
-  var name: string
-  if node[0].kind == ComplexitySignature: 
-    (signature, args, code) = (node[1], node[3], node[4])
-    name = node[2].name
-  else:
-    (signature, args, code) = (node[0], node[2], node[1])
-    name = node[1].name
-  for child in signature.children: # args
-    t.params.add(genType(child, env))
+  for child in node[1].children: # args
+    echo child
+    t.params.add(genType(child[1], env))
   node.typ = t
-  let existing = env[name]
-  if existing.name.len > 0:
-    echo &"Overriding {name}"
+  let existing = env[node[0].name]
+  if not existing.isNil:
+    echo &"Overriding {node[0].name}"
     quit(1)
-  env[name] = t
+  env[node[0].name] = t
   var childEnv = newTypeEnv()
   childEnv.previous = @[env]
-  for i, arg in args.children:
-    childEnv[arg.name] = t.params[i]
-    # echo arg.name
-  check(code, childEnv)
+  for i, arg in node[1].children:
+    childEnv[arg[0].name] = t.params[i]
+    echo arg[0].name
+  check(node[2], childEnv)
   
 proc checkOperator(node, env) =
   discard

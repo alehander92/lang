@@ -82,8 +82,14 @@ type
     freed*: Table[Path, bool]
     lastName*: string
 
-  Path* = ref object
+  Path* = object
     subPaths*: seq[string]
+
+  CGenerator* = object
+    output*:    seq[string]
+    topLevel*:  seq[string]
+    indent*:    int
+    indentSize*: int
 
   ComplexityEnv* = ref object
     typeEnv*:    TypeEnv
@@ -151,7 +157,7 @@ proc `[]`*(env: TypeEnv, name: string): Type =
       current = current.previous[0]
     else:
       break
-  return Type(kind: TSimple, name: "")
+  return nil
 
 proc `[]=`*(env: TypeEnv, name: string, t: Type) =
   var types = env.types
@@ -174,6 +180,9 @@ proc `==`*(typ: Type, other: Type): bool =
   of TPointer:
     typ.obj == other.obj
   
+proc `$`*(path: Path): string =
+  "#/" & path.subPaths.join("/")
+
 proc op*(name: string): Node =
   Node(kind: Operator, name: name)
 
