@@ -1,5 +1,5 @@
 import os
-import sem, gen, npeg, parser, types, strutils, sequtils
+import sem, gen, parser, types, strutils, sequtils
 
 
 var program = "hello.js"
